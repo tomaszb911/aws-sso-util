@@ -28,6 +28,7 @@ from botocore.exceptions import ClientError
 import click
 
 from aws_sso_lib.sso import get_credentials
+from aws_sso_lib.config import get_instance_from_sso_session
 from aws_sso_lib.exceptions import InvalidSSOConfigError, AuthDispatchError, AuthenticationNeededError, UnauthorizedSSOTokenError
 
 LOG_FILE = os.path.expanduser(
@@ -143,6 +144,16 @@ def credential_process(
         else:
             profile_config = {}
 
+        sso_session = profile_config.get("sso_session")
+        registration_scopes = None
+        if sso_session:
+            instance = get_instance_from_sso_session(sso_session, session.full_config)
+            if not instance:
+                raise InvalidSSOConfigError(f"Invalid or missing sso-session {sso_session}")
+            LOGGER.info(f"Using sso-session {sso_session}")
+            profile_config = dict(profile_config, sso_start_url=instance.start_url, sso_region=instance.region)
+            registration_scopes = instance.registration_scopes
+
         config = get_config(arg_config, profile_config)
 
         LOGGER.info("CONFIG: {}".format(json.dumps(config)))
@@ -163,6 +174,8 @@ def credential_process(
             account_id=config["sso_account_id"],
             role_name=config["sso_role_name"],
             force_refresh=force_refresh,
+            sso_session=sso_session,
+            registration_scopes=registration_scopes,
         )
 
         output = {

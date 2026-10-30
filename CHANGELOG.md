@@ -7,6 +7,9 @@
 
 ## `aws-sso-util`
 
+### Unreleased
+* Support `sso-session` config: `login` (with new `--sso-session` option), `credential-process`, and `roles` share the token with the AWS CLI v2 and use refresh tokens.
+
 ### CLI v4.33
 * Update to jsonschema major version 4 for issue [#117](https://github.com/benkehoe/aws-sso-util/issues/117).
 
@@ -70,6 +73,10 @@
 * Fix name fetching error with `!Ref` principal or target
 
 ## `aws-sso-lib`
+
+### Unreleased
+* Support `sso-session` config: `login()`, `logout()`, `get_credentials()`, `list_available_accounts()`, and `list_available_roles()` take `sso_session` and `registration_scopes` parameters, and `SSOInstance` has `session_name` and `registration_scopes` fields.
+* Add `config.get_instance_from_sso_session()`.
 
 ### lib v1.14
 * Add `exclude_inactive_accts` parameter to `lookup_accounts_for_ou()` ([#80](https://github.com/benkehoe/aws-sso-util/issues/80) via [#81](https://github.com/benkehoe/aws-sso-util/pull/81)).

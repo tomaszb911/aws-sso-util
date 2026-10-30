@@ -85,11 +85,14 @@ def get_token_fetcher(session, sso_region, *, interactive=False, sso_cache=None,
     )
     return token_fetcher
 
-def _get_token_loader_from_token_fetcher(token_fetcher, force_refresh=False):
+def _get_token_loader_from_token_fetcher(token_fetcher, force_refresh=False,
+                                         sso_session=None, registration_scopes=None):
     def token_loader(start_url):
         token_response = token_fetcher.fetch_token(
             start_url=start_url,
-            force_refresh=force_refresh
+            force_refresh=force_refresh,
+            session_name=sso_session,
+            registration_scopes=registration_scopes,
         )
         LOGGER.debug("TOKEN: {}".format(token_response))
         return token_response
@@ -101,10 +104,15 @@ def get_credentials(session, start_url, sso_region, account_id, role_name, *,
         token_fetcher=None,
         force_refresh=False,
         sso_cache=None,
-        credential_cache=None):
+        credential_cache=None,
+        sso_session=None,
+        registration_scopes=None):
     """Return credentials for the given role.
 
     The return value is a dict containing the assumed role credentials.
+
+    If sso_session is given, the Identity Center token is the one for that
+    sso-session, shared with the AWS CLI v2.
 
     You probably want to use get_boto3_session() instead, which returns
     a boto3 session that caches its credentials and automatically refreshes them.
@@ -114,7 +122,12 @@ def get_credentials(session, start_url, sso_region, account_id, role_name, *,
     if not token_fetcher:
         token_fetcher = get_token_fetcher(session, sso_region, sso_cache=sso_cache)
 
-    token_loader = _get_token_loader_from_token_fetcher(token_fetcher=token_fetcher, force_refresh=force_refresh)
+    token_loader = _get_token_loader_from_token_fetcher(
+        token_fetcher=token_fetcher,
+        force_refresh=force_refresh,
+        sso_session=sso_session,
+        registration_scopes=registration_scopes,
+    )
 
     if credential_cache is None:
         credential_cache = JSONFileCache(CREDENTIALS_CACHE_DIR)
@@ -220,7 +233,9 @@ def login(
         message: str=None,
         outfile: typing.Union[typing.TextIO, bool]=None,
         user_auth_handler=None,
-        sso_cache=None,) -> typing.Dict:
+        sso_cache=None,
+        sso_session: str=None,
+        registration_scopes: typing.List[str]=None) -> typing.Dict:
     """Interactively log in the user if their Identity Center credentials have expired.
 
     If the user is not logged in or force_refresh is True, it will attempt to log in.
@@ -257,6 +272,9 @@ def login(
             promptly or it will block the login process.
         sso_cache: A dict-like object for Identity Center credential caching to replace
             the default file cache in ~/.aws/sso/cache .
+        sso_session (str): The name of the sso-session to log in to. The token is
+            cached under the session name and can be refreshed, like the AWS CLI v2.
+        registration_scopes (list): The sso_registration_scopes for the sso-session.
 
     Returns:
         The token dict as returned by sso-oidc:CreateToken,
@@ -289,11 +307,14 @@ def login(
 
     token = token_fetcher.fetch_token(
         start_url=start_url,
-        force_refresh=force_refresh
+        force_refresh=force_refresh,
+        session_name=sso_session,
+        registration_scopes=registration_scopes,
     )
-    token['expiresAt'] = _serialize_utc_timestamp(token['expiresAt'])
-    if 'receivedAt' in token:
-        token['receivedAt'] = _serialize_utc_timestamp(token['receivedAt'])
+    token = dict(token)
+    for key in ['expiresAt', 'receivedAt', 'registrationExpiresAt']:
+        if key in token:
+            token[key] = _serialize_utc_timestamp(token[key])
 
     return token
 
@@ -303,13 +324,15 @@ def logout(
         start_url: str,
         sso_region: str,
         *,
-        sso_cache=None):
+        sso_cache=None,
+        sso_session: str=None):
     """Log out of the given Identity Center instance.
 
     Args:
         start_url (str): The start URL for the Identity Center instance.
         sso_region (str): The AWS region for the Identity Center instance.
         sso_cache: A dict-like object for Identity Center credential caching.
+        sso_session (str): The name of the sso-session to log out of.
 
     Returns:
         Never raises.
@@ -331,7 +354,8 @@ def logout(
 
     try:
         token = token_fetcher.pop_token_from_cache(
-            start_url=start_url
+            start_url=start_url,
+            session_name=sso_session,
         )
 
         if not token:
@@ -354,7 +378,9 @@ def list_available_accounts(
         sso_region: str,
         *,
         login: bool=False,
-        sso_cache=None) -> typing.Iterator[typing.Tuple[str, str]]:
+        sso_cache=None,
+        sso_session: str=None,
+        registration_scopes: typing.List[str]=None) -> typing.Iterator[typing.Tuple[str, str]]:
     """Iterate over the available accounts the user has access to through Identity Center.
 
     Args:
@@ -362,6 +388,8 @@ def list_available_accounts(
         sso_region (str): The AWS region for the Identity Center instance.
         login (bool): Interactively log in the user if their Identity Center credentials have expired.
         sso_cache: A dict-like object for Identity Center credential caching.
+        sso_session (str): The name of the sso-session to use the token for.
+        registration_scopes (list): The sso_registration_scopes for the sso-session.
 
     Returns:
         An iterator that yields account id and account name.
@@ -373,7 +401,11 @@ def list_available_accounts(
 
     token_fetcher = get_token_fetcher(session, sso_region, interactive=login, sso_cache=sso_cache)
 
-    token = token_fetcher.fetch_token(start_url)
+    token = token_fetcher.fetch_token(
+        start_url,
+        session_name=sso_session,
+        registration_scopes=registration_scopes,
+    )
 
     config = botocore.config.Config(
         region_name=sso_region,
@@ -400,7 +432,9 @@ def list_available_roles(
         account_id: typing.Union[str, int, typing.Iterable[typing.Union[str, int]]]=None,
         *,
         login: bool=False,
-        sso_cache=None) -> typing.Iterator[typing.Tuple[str, str, str]]:
+        sso_cache=None,
+        sso_session: str=None,
+        registration_scopes: typing.List[str]=None) -> typing.Iterator[typing.Tuple[str, str, str]]:
     """Iterate over the available accounts and roles the user has access to through Identity Center.
 
     Args:
@@ -410,6 +444,8 @@ def list_available_roles(
             If not set, all accounts available to the user are listed.
         login (bool): Interactively log in the user if their Identity Center credentials have expired.
         sso_cache: A dict-like object for Identity Center credential caching.
+        sso_session (str): The name of the sso-session to use the token for.
+        registration_scopes (list): The sso_registration_scopes for the sso-session.
 
     Returns:
         An iterator that yields account id, account name, and role name.
@@ -430,7 +466,11 @@ def list_available_roles(
 
     token_fetcher = get_token_fetcher(session, sso_region, interactive=login, sso_cache=sso_cache)
 
-    token = token_fetcher.fetch_token(start_url)
+    token = token_fetcher.fetch_token(
+        start_url,
+        session_name=sso_session,
+        registration_scopes=registration_scopes,
+    )
 
     config = botocore.config.Config(
         region_name=sso_region,

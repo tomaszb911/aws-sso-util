@@ -110,7 +110,8 @@ def roles(
         LOGGER.fatal(str(e))
         sys.exit(1)
 
-    login(instance.start_url, instance.region, force_refresh=force_refresh)
+    login(instance.start_url, instance.region, force_refresh=force_refresh,
+          sso_session=instance.session_name, registration_scopes=instance.registration_scopes)
 
     printer = Printer(
         separator=separator,
@@ -122,7 +123,8 @@ def roles(
     )
     printer.print_header_before()
 
-    for account_id, account_name, role_name in list_available_roles(instance.start_url, instance.region, account_id=account_ids):
+    for account_id, account_name, role_name in list_available_roles(instance.start_url, instance.region, account_id=account_ids,
+        sso_session=instance.session_name, registration_scopes=instance.registration_scopes):
         if not account_filter(account_id, account_name):
             continue
         if role_name_patterns:

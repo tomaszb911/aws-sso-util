@@ -91,6 +91,11 @@ def get_instance(sso_start_url, sso_region, sso_start_url_vars=None, sso_region_
         else:
             raise GetInstanceError("No Identity Center instance found")
 
+    if len(instances) > 1 and len(set((i.start_url, i.region) for i in instances)) == 1:
+        # the same instance configured both through an sso-session and directly in profiles
+        # prefer the sso-session, which shares its login with the AWS CLI v2
+        return sorted(instances, key=lambda i: i.session_name is None)[0]
+
     if len(instances) > 1:
         raise GetInstanceError(f"Found {len(instances)} Identity Center instances, please specify one: {SSOInstance.to_strs(instances)}")
 

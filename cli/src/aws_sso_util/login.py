@@ -43,6 +43,7 @@ LOCAL_TIME_FORMAT = "%Y-%m-%d %H:%M %Z"
 @click.argument("sso_start_url", required=False)
 @click.argument("sso_region", required=False)
 @click.option("--profile", metavar="PROFILE_NAME", help="Use a profile to specify Identity Center instance")
+@click.option("--sso-session", metavar="SESSION_NAME", help="Use an sso-session from your config to specify Identity Center instance")
 @click.option("--all", "login_all", is_flag=True, default=None, help="Log in to all Identity Center instances if multiple are found")
 @click.option("--force-refresh", "force", is_flag=True, help="Force re-authentication")
 @click.option("--headless", is_flag=True, default=None, help="Never open a browser window")
@@ -54,6 +55,7 @@ def login(
         sso_start_url,
         sso_region,
         profile,
+        sso_session,
         login_all,
         force,
         headless,
@@ -74,6 +76,9 @@ def login(
     and if this uniquely identifies a start URL in your config, that will suffice.
 
     You can also provide a profile name with --profile to use the Identity Center instance from a specific profile.
+
+    Profiles that use an sso-session (sso_session = NAME) share the login with the AWS CLI v2
+    (aws sso login --sso-session NAME). You can also provide the session name directly with --sso-session.
     """
     sso_start_url = sso_start_url or alternate_sso_start_url
     sso_region = sso_region or alternate_sso_region
@@ -99,6 +104,7 @@ def login(
             region_source="CLI input",
             start_url_vars=LOGIN_DEFAULT_START_URL_VARS,
             region_vars=LOGIN_DEFAULT_SSO_REGION_VARS,
+            sso_session=sso_session,
         )
 
         if not instances:
@@ -110,7 +116,9 @@ def login(
                 LOGGER.fatal("No Identity Center config found")
             sys.exit(1)
 
-        if len(instances) > 1:
+        # the same instance configured both through an sso-session and directly in profiles
+        # needs a separate login for each
+        if len(instances) > 1 and len(set((i.start_url, i.region) for i in instances)) > 1:
             LOGGER.fatal(f"Found {len(instances)} Identity Center configs, please specify one or use --all: {SSOInstance.to_strs(instances)}")
             sys.exit(1)
 
@@ -129,10 +137,15 @@ def login(
     if len(instances) > 1:
         LOGGER.info(f"Logging in {len(instances)} Identity Center instances")
     for instance in instances:
-        LOGGER.info(f"Logging in {instance.start_url}")
+        LOGGER.info(f"Logging in {instance.to_str(region=False)}")
         token_fetcher = token_fetchers[instance.region]
         try:
-            token = token_fetcher.fetch_token(instance.start_url, force_refresh=force)
+            token = token_fetcher.fetch_token(
+                instance.start_url,
+                force_refresh=force,
+                session_name=instance.session_name,
+                registration_scopes=instance.registration_scopes,
+            )
             LOGGER.debug(f"Token: {token}")
             expiration = token['expiresAt']
             if isinstance(expiration, str):

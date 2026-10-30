@@ -28,6 +28,15 @@ If you've got multiple Identity Center instances configured, you've got to tell 
     * If a region was found in step 2, instances must match this region.
 5. The resulting filtered list of instances must contain exactly one entry, unless `--all` is set or `AWS_SSO_LOGIN_ALL=true`.
 
+## sso-session
+
+Profiles that use an [`sso-session`](https://docs.aws.amazon.com/cli/latest/userguide/sso-configure-profile-token.html) section (`sso_session = NAME`) are supported.
+For these, `aws-sso-util login` stores the token the same way the AWS CLI v2 does (keyed on the session name, with a refresh token if `sso_registration_scopes` allows it),
+so logging in with either `aws-sso-util login` or `aws sso login --sso-session NAME` works for all tools.
+Use `--sso-session NAME` to select a session directly.
+
+If the same instance is configured both through an `sso-session` and directly with `sso_start_url` in other profiles, these are separate logins, and `aws-sso-util login` logs in to both.
+
 In general: if you've got multiple Identity Center instances you're using, you should set the environment variables listed above with your most-used instance, and then use a substring with `--sso-start-url`/`-u` to select among them.
 
 For example, if you're using `https://foo.awsapps.com/start` (region `us-east-2`) and `https://bar.awsapps.com/start` (`ap-northeast-1`), and the first is your more used one, you'd set:
